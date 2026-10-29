@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="選股">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="icon.png"><link rel="manifest" href="manifest.json">
+<title>選股掃描</title>
+<style>
+:root{--bg:#111418;--fg:#e8eaed;--mut:#8b929a;--card:#1b2026;--up:#e5484d;--dn:#30a46c}
+@media(prefers-color-scheme:light){:root{--bg:#f4f5f7;--fg:#1a1d21;--mut:#6b7280;--card:#fff}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px -apple-system,sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px}
+h1{font-size:18px;margin:0}small,.mut{color:var(--mut)}
+.tabs{display:flex;gap:8px;padding:0 16px 8px}
+.tabs button{flex:1;padding:10px;border:0;border-radius:10px;background:var(--card);color:var(--fg);font-size:15px}
+.tabs button.on{background:var(--up);color:#fff}.tabs button.on.s{background:var(--dn)}
+#meta{padding:4px 16px 8px;font-size:13px;color:var(--mut)}#err{margin:0 16px 8px;padding:10px;border-radius:10px;background:#5c2b2e;color:#fff;font-size:13px;display:none}
+ul{list-style:none;margin:0;padding:0 16px 24px}
+li{display:flex;justify-content:space-between;align-items:center;background:var(--card);border-radius:12px;padding:10px 14px;margin-bottom:8px}
+li b{font-size:16px}li .r{text-align:right}.up{color:var(--up)}.dn{color:var(--dn)}
+.bar{display:flex;gap:8px;padding:0 16px 12px}.bar button{flex:1;padding:12px;border:0;border-radius:10px;background:var(--card);color:var(--fg);font-size:14px}
+.bar button.p{background:#2f6feb;color:#fff}
+</style></head><body>
+<header><h1>選股掃描</h1><small>By 攸雨小站</small></header>
+<div class="tabs"><button id="tl" class="on">做多</button><button id="ts" class="s">做空</button></div>
+<div id="meta"></div><div id="err"></div>
+<div class="bar"><button class="p" id="go">重新掃描</button><button id="tk">設定 Token</button></div>
+<ul id="list"></ul>
+<script>
+const $=id=>document.getElementById(id);
+let data=null,side="long";
+const owner=location.hostname.split(".")[0],repo=location.pathname.split("/")[1]||"";
+const key=d=>d?(d.updated||"")+"|"+(d.failed_at||""):"";
+async function load(){
+  try{const r=await fetch("result.json?t="+Date.now(),{cache:"no-store"});data=await r.json();render();return data}
+  catch(e){$("err").style.display="block";$("err").textContent="讀取失敗："+e;return null}
+}
+function render(){
+  const s=data[side]||{results:[]},rows=s.results||[];
+  $("tl").classList.toggle("on",side==="long");$("ts").classList.toggle("on",side==="short");
+  $("meta").textContent=(data.updated?"掃描時間 "+data.updated.replace("T"," ").slice(0,16):"尚未掃描")+(s.asof?"　資料日 "+s.asof:"")+"　共 "+rows.length+" 檔";
+  $("err").style.display=data.error?"block":"none";$("err").textContent=data.error||"";
+  $("list").innerHTML=rows.map(r=>{const c=r.chg>=0?"up":"dn";
+    return `<li><div><b>${r.symbol.replace(/\.TWO?$/,"")}</b> ${r.name||""}<br><small>量 ${Math.round(r.volume/1000).toLocaleString()} 張</small></div><div class="r"><b class="${c}">${r.close}</b><br><small class="${c}">${r.chg>=0?"+":""}${r.chg}%</small></div></li>`}).join("")||'<li class="mut">沒有符合的股票</li>';
+}
+$("tl").onclick=()=>{side="long";data&&render()};$("ts").onclick=()=>{side="short";data&&render()};
+$("tk").onclick=()=>{const t=prompt("貼上 GitHub Token（只存在這支手機）",localStorage.getItem("gh")||"");if(t!==null){localStorage.setItem("gh",t.trim())}};
+$("go").onclick=async()=>{
+  const t=localStorage.getItem("gh");if(!t){alert("請先按「設定 Token」");return}
+  $("go").disabled=true;$("go").textContent="送出中…";
+  const before=key(data);
+  const r=await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/workflows/scan.yml/dispatches`,{method:"POST",headers:{Authorization:"Bearer "+t,Accept:"application/vnd.github+json"},body:JSON.stringify({ref:"main"})});
+  if(r.status!==204){alert("觸發失敗（"+r.status+"），請確認 Token 權限");$("go").disabled=false;$("go").textContent="重新掃描";return}
+  $("go").textContent="掃描中…（約數分鐘）";
+  for(let i=0;i<80;i++){await new Promise(z=>setTimeout(z,20000));const d=await load();if(d&&key(d)!==before)break}
+  $("go").disabled=false;$("go").textContent="重新掃描";
+};
+load();
+</script></body></html>
